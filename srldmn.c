@@ -12,8 +12,8 @@
 
 #include <android/log.h>
 
-#define VERIFY_PACKET (0)
-//#define DEBUG (0)
+#define VERIFY_PACKET (1)
+#define DEBUG (0)
 
 #if ((VERIFY_PACKET)==(1))
 #define DBG_VRFY_PCKT
@@ -21,6 +21,7 @@
 
 #define STX 0x02
 #define ETX 0x03
+#define ACK 0x06
 #define DLE 0x10
 
 #define tn(n) (((argc)>=((n)+1))?(argv[(n)]):("NULL"))
@@ -31,6 +32,8 @@ typedef unsigned int U32;
 typedef signed char S8;
 typedef signed short S16;
 typedef signed int S32;
+
+int vrfyPcktFlag;
 
 int fd0, fd1;
 char *p0, *p1;
@@ -57,16 +60,21 @@ int szP0 (void)
 
 void pshP0 (U8 b)
 {
-	if ( (int) ( (b0h+1) % sizeof(buf0) ) == b0t ) ++b0t;
+	if ( ( (b0h+1) % (int) sizeof(buf0) ) == b0t ) ++b0t;
 
 	buf0[b0h] = b;
 
 	b0h = ( (b0h+1) % sizeof(buf0) );
 }
 
-U8 popP0 (void)
+U8 popP0 (int n)
 {
+	int i;
 	U8 b;
+
+	if (n >= 2)
+		for (i=0; i<n-1; ++i) 
+			b0t = ( (b0t+1) % sizeof(buf0) );
 
 	if (szP0())
 	{
@@ -92,19 +100,19 @@ void rcvP0 (int len, U8 *b)
  */
 void tmtP0 (int len)
 {
-	int i;
-	U8 b;
+	U8 tmtBfr[256];
 
-	while (szP0() > len) popP0();
+	int i;
+
+	if (szP0() < len || len > (int) sizeof(tmtBfr)) return;
+
+	popP0(szP0() - len);
 
 	for (i=0; i<len; ++i)
-	{
-		if (!szP0()) break;
+		tmtBfr[i] = popP0(1);
 
-		b = popP0();
-
-		write (fd0, &b, 1);
-	}
+	// transmit entire packet at once
+	write (fd0, &tmtBfr[0], len);
 }
 
 void clrP1 (void)
@@ -123,16 +131,21 @@ int szP1 (void)
 
 void pshP1 (U8 b)
 {
-	if ( (int) ( (b1h+1) % sizeof(buf1) ) == b1t ) ++b1t;
+	if ( ( (b1h+1) % (int) sizeof(buf1) ) == b1t ) ++b1t;
 
 	buf1[b1h] = b;
 
 	b1h = ( (b1h+1) % sizeof(buf1) );
 }
 
-U8 popP1 (void)
+U8 popP1 (int n)
 {
+	int i;
 	U8 b;
+
+	if (n >= 2)
+		for (i=0; i<n-1; ++i) 
+			b0t = ( (b0t+1) % sizeof(buf0) );
 
 	if (szP1())
 	{
@@ -158,19 +171,19 @@ void rcvP1 (int len, U8 *b)
  */
 void tmtP1 (int len)
 {
-	int i;
-	U8 b;
+	U8 tmtBfr[256];
 
-	while (szP1() > len) popP1();
+	int i;
+
+	if (szP1() < len || len > (int) sizeof(tmtBfr)) return;
+
+	popP1(szP1() - len);
 
 	for (i=0; i<len; ++i)
-	{
-		if (!szP1()) break;
+		tmtBfr[i] = popP1(1);
 
-		b = popP1();
-
-		write (fd1, &b, 1);
-	}
+	// transmit entire packet at once
+	write (fd1, &tmtBfr[0], len);
 }
 
 void serialInit (void)
@@ -319,6 +332,12 @@ int matchPacket (U8 b)
 				++len;
 				s = 2;
 			}
+			else if (b == ACK)
+			{
+				++len;
+				s = 0;
+				return (len);
+			}
 			break;
 		case 2: // data
 			cs = b;
@@ -373,15 +392,10 @@ void serialLoop (void)
 	U8 buf[256];
 	int vf=0, n, i, len, tst=0;
 
-#ifndef DEBUG
-	syslog (LOG_INFO, "%s", "starting serialLoop");
-#else
+	//syslog (LOG_INFO, "%s", "starting serialLoop");
 	printf ("serialLoop\n");
-#endif
 
-#ifdef DBG_VRFY_PCKT
-	vf=1;
-#endif
+	vf=vrfyPcktFlag;
 
 	for (;;)
 	{
@@ -397,28 +411,26 @@ void serialLoop (void)
 
 		if ( (n=read (fd0, &buf[0], sizeof(buf)-1) ) )
 		{
-			if (vf) rcvP0 (n, &(buf[0]));
+			if (vf) rcvP1 (n, &(buf[0]));
 
 			for (i=0; i<n; ++i)
 			{
-#ifndef DEBUG
-				syslog (LOG_INFO, "p0: rcv: %02X ", buf[i]);
-#else
+				//syslog (LOG_INFO, "p0: rcv: %02X ", buf[i]);
 				printf ("p0: rcv: %02X ", buf[i]);
-#endif
 
 				if (vf)
 				{
-					if ( (len=matchPacket(buf[i]) ) ) tmtP1(len);
+					if ( (len=matchPacket(buf[i]) ) )
+					{
+						tmtP1(len);
+					}
 				}
 				else
 				{
 					write (fd1, &buf[i], 1);
-#ifndef DEBUG
-					syslog (LOG_INFO, "p1: tmt: %02X ", buf[i]);
-#else
+
+					//syslog (LOG_INFO, "p1: tmt: %02X ", buf[i]);
 					printf ("p1: tmt: %02X ", buf[i]);
-#endif
 				}
 			}
 		}
@@ -434,28 +446,26 @@ void serialLoop (void)
 
 		if ( (n=read (fd1, &buf[0], sizeof(buf)-1) ) )
 		{
-			if (vf) rcvP1 (n, &(buf[0]));
+			if (vf) rcvP0 (n, &(buf[0]));
 
 			for (i=0; i<n; ++i)
 			{
-#ifndef DEBUG
-				syslog (LOG_INFO, "p1: rcv: %02X ", buf[i]);
-#else
+				//syslog (LOG_INFO, "p1: rcv: %02X ", buf[i]);
 				printf ("p1: rcv: %02X ", buf[i]);
-#endif
 
 				if (vf)
 				{
-					if ( (len=matchPacket(buf[i]) ) ) tmtP0(len);
+					if ( (len=matchPacket(buf[i]) ) )
+					{
+						tmtP0(len);
+					}
 				}
 				else
 				{
 					write (fd0, &buf[i], 1);
-#ifndef DEBUG
-					syslog (LOG_INFO, "p0: tmt: %02X ", buf[i]);
-#else
+
+					//syslog (LOG_INFO, "p0: tmt: %02X ", buf[i]);
 					printf ("p0: tmt: %02X ", buf[i]);
-#endif
 				}
 			}
 		}
@@ -521,14 +531,19 @@ void tst (int argc, char *argv[])
 
 	printf ("justatest\n");
 
-	printf ("argv[0] = %s\n", tn(0));
-	printf ("argv[1] = %s\n", tn(1));
-	printf ("argv[2] = %s\n", tn(2));
+	printf ("     argv[0] = %s\n", tn(0));
+	printf ("     argv[1] = %s\n", tn(1));
+	printf ("     argv[2] = %s\n", tn(2));
+
+	printf ("vrfyPcktFlag = %i\n", vrfyPcktFlag);
 
 	//printf ("  vf = %i\n", vf);
 	//exit (0);
 }
 
+/*
+ * ./srlmn <port 0> <port 1> <verify packet>
+ */
 int main (int argc, char *argv[])
 {
 	int n;
@@ -536,6 +551,14 @@ int main (int argc, char *argv[])
 
 	p0 = argv[1];
 	p1 = argv[2];
+
+	/*
+	 * transmit only validated packets
+	 */
+	if (argv[3] != NULL)
+		vrfyPcktFlag=1;
+	else
+		vrfyPcktFlag=0;
 
 	tst (argc, argv);
 
