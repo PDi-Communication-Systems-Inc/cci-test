@@ -1,8 +1,10 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <syslog.h>
 #include <sys/stat.h>
@@ -10,14 +12,12 @@
 #include <termios.h>
 #include <unistd.h>
 
+#ifdef __ANDROID__
 #include <android/log.h>
-
-#define VERIFY_PACKET (1)
-#define DEBUG (0)
-
-#if ((VERIFY_PACKET)==(1))
-#define DBG_VRFY_PCKT
 #endif
+
+//#define DEBUG (0)
+#define NMBR_PORTS (2)
 
 #define STX 0x02
 #define ETX 0x03
@@ -33,54 +33,60 @@ typedef signed char S8;
 typedef signed short S16;
 typedef signed int S32;
 
+int bAnd, bDbg;
 int vrfyPcktFlag;
 
-int fd0, fd1;
-char *p0, *p1;
-
-int b0h, b0t;
-int b1h, b1t;
-
-U8 buf0[256]; // circular receive buffer p0
-U8 buf1[256]; // circular receive buffer p1
-
-void clrP0 (void)
+/*
+ * serial port info
+ */
+struct buffer_t
 {
-	b0h=0;
-	b0t=0;
+	int fd;			// file descriptor
+	char pn[256];	// part name
+	int b0t;		// buffer tail
+	int b0h;		// buffer head
+	U8 b[256];		// buffer
+};
+
+struct buffer_t p[NMBR_PORTS];
+
+void clrP (struct buffer_t *p)
+{
+	p->b0h=0;
+	p->b0t=0;
 }
 
-int szP0 (void)
+int szP (struct buffer_t *p)
 {
-	if (b0h >= b0t)
-		return (b0h - b0t - 1);
+	if (p->b0h >= p->b0t)
+		return (p->b0h - p->b0t - 1);
 	else
-		return (sizeof(buf0) - b0t + b0h);
+		return (sizeof(p->b) - p->b0t + p->b0h);
 }
 
-void pshP0 (U8 b)
+void pshP (struct buffer_t *p, U8 b)
 {
-	if ( ( (b0h+1) % (int) sizeof(buf0) ) == b0t ) ++b0t;
+	if ( ( (p->b0h+1) % (int) sizeof(p->b) ) == p->b0t ) ++p->b0t;
 
-	buf0[b0h] = b;
+	p->b[p->b0h] = b;
 
-	b0h = ( (b0h+1) % sizeof(buf0) );
+	p->b0h = ( (p->b0h+1) % sizeof(p->b) );
 }
 
-U8 popP0 (int n)
+U8 popP (struct buffer_t *p, int n)
 {
 	int i;
 	U8 b;
 
 	if (n >= 2)
 		for (i=0; i<n-1; ++i) 
-			b0t = ( (b0t+1) % sizeof(buf0) );
+			p->b0t = ( (p->b0t+1) % sizeof(p->b) );
 
-	if (szP0())
+	if (szP(p))
 	{
-		b = buf0[b0t];
+		b = p->b[p->b0t];
 
-		b0t = ( (b0t+1) % sizeof(buf0) );
+		p->b0t = ( (p->b0t+1) % sizeof(p->b) );
 
 		return (b);
 	}
@@ -88,108 +94,53 @@ U8 popP0 (int n)
 	return (0);
 }
 
-void rcvP0 (int len, U8 *b)
+void rcvP (struct buffer_t *p, int len, U8 *b)
 {
 	int i;
 
-	for (i=0; i<len; ++i) pshP0(*b++);
+	for (i=0; i<len; ++i) pshP(p, *b++);
 }
 
-/*
- * transmit last packet on buffer
- */
-void tmtP0 (int len)
+void tmtP (struct buffer_t *p, int len)
 {
-	U8 tmtBfr[256];
-
 	int i;
 
-	if (szP0() < len || len > (int) sizeof(tmtBfr)) return;
+	if (szP(p) < len || len > (int) sizeof(p->b)) return;
 
-	popP0(szP0() - len);
+	popP(p, szP(p) - len);
 
-	for (i=0; i<len; ++i)
-		tmtBfr[i] = popP0(1);
+	for (i=0; i<len; ++i) p->b[i] = popP(p, 1);
 
 	// transmit entire packet at once
-	write (fd0, &tmtBfr[0], len);
+	write (p->fd, &p->b[0], len);
 }
 
-void clrP1 (void)
+//void serialLog (const char *s, const char *f, ...)
+void serialLog (const char *f, ...)
 {
-	b1h=0;
-	b1t=0;
-}
+	char s[] = "srldmn";
 
-int szP1 (void)
-{
-	if (b1h >= b1t)
-		return (b1h - b1t - 1);
-	else
-		return (sizeof(buf1) - b1t + b1h);
-}
+	va_list a;
+	va_start(a, f);
 
-void pshP1 (U8 b)
-{
-	if ( ( (b1h+1) % (int) sizeof(buf1) ) == b1t ) ++b1t;
-
-	buf1[b1h] = b;
-
-	b1h = ( (b1h+1) % sizeof(buf1) );
-}
-
-U8 popP1 (int n)
-{
-	int i;
-	U8 b;
-
-	if (n >= 2)
-		for (i=0; i<n-1; ++i) 
-			b0t = ( (b0t+1) % sizeof(buf0) );
-
-	if (szP1())
+	if (bDbg)
+		printf (f, a);
+	else if (bAnd)
 	{
-		b = buf1[b1t];
-
-		b1t = ( (b1t+1) % sizeof(buf1) );
-
-		return (b);
+		//__android_log_write (ANDROID_LOG_INFO, f, a);
+		//__android_log_vprint (ANDROID_LOG_INFO, s, f, a);
 	}
+	else
+		syslog (LOG_INFO, f, a);
 
-	return (0);
-}
-
-void rcvP1 (int len, U8 *b)
-{
-	int i;
-
-	for (i=0; i<len; ++i) pshP1(*b++);
-}
-
-/*
- * transmit last packet on buffer
- */
-void tmtP1 (int len)
-{
-	U8 tmtBfr[256];
-
-	int i;
-
-	if (szP1() < len || len > (int) sizeof(tmtBfr)) return;
-
-	popP1(szP1() - len);
-
-	for (i=0; i<len; ++i)
-		tmtBfr[i] = popP1(1);
-
-	// transmit entire packet at once
-	write (fd1, &tmtBfr[0], len);
+	va_end(a);
 }
 
 void serialInit (void)
 {
-	clrP0();
-	clrP1();
+	int i;
+
+	for (i=0; i<NMBR_PORTS; ++i) clrP (&p[i]);
 }
 
 int serialConfig (int fd)
@@ -198,7 +149,7 @@ int serialConfig (int fd)
 
 	if (tcgetattr(fd, &t) == -1)
 	{
-		printf ("  unable to get attributes for port:  %i\n", fd);
+		serialLog ("  unable to get attributes for port:  %i\n", fd);
 		return (0);
 	}
 
@@ -211,269 +162,210 @@ int serialConfig (int fd)
 
 	if (tcsetattr(fd, TCSANOW, &t) == -1)
 	{
-		printf ("  unable to set attributes for port:  %i\n", fd);
-		return (0);
+		serialLog ("  unable to set attributes for port:  %i\n", fd);
+		return (1);
 	}
 
-	return (1);
+	return (0);
 }
 
-int serialOpen (char *p0, char *p1)
+int serialOpenPort (struct buffer_t *p)
 {
-#ifndef DEBUG
-	//__android_log_write(ANDROID_LOG_INFO, "starting", "");
-	syslog (LOG_INFO, "%s", "starting");
-#else
-	printf ("serialOpen\n");
-	//__android_log_write(ANDROID_LOG_INFO, "starting", "justatest");
-#endif
-
-	if (p0 != NULL)
+	if (p != NULL)
 	{
-		fd0 = open (p0, O_RDWR | O_NOCTTY | O_NDELAY);
-		printf ("  port: %s initialized\n", p0);
+		p->fd = open (p->pn, O_RDWR | O_NOCTTY | O_NDELAY);
+		serialLog ("  port %s initialized\n", p->pn);
 	}
 	else
 	{
-		printf ("  Port 0 NULL\n");
-		return (0);
+		serialLog ("  port NULL\n");
+		return (1);
 	}
 
-	if (fd0 == -1)
+	if (p->fd == -1)
 	{
-		printf ("  unable to open:  %s\n", p0);
-		return (0);
+		serialLog ("  unable to open: %s\n", p->pn);
+		return (1);
 	}
 	else
 	{
-#ifndef DEBUG
-		syslog (LOG_INFO, "%s: %s", "opened serial port 0", p0);
-#else
-		printf ("opened serial port 0\n");
-#endif
+		serialLog ("opened serial port: %s\n", p->pn);
 
-		if (serialConfig(fd0))
+		if (serialConfig(p->fd))
 		{
-			printf ("  serial port p0 configured\n");
+			serialLog ("  serial port %s configured\n", p->pn);
 		}
 		else
 		{
-			printf ("  unable to config serial:  %s\n", p0);
-			return (0);
+			serialLog ("  unable to config port: %s\n", p->pn);
+			return (1);
 		}
 	}
 
-	if (p1 != NULL)
-	{
-		fd1 = open (p1, O_RDWR | O_NOCTTY | O_NDELAY);
-		printf ("  port: %s initialized\n", p1);
-	}
-	else
-	{
-		printf ("  Port 1 NULL\n");
-		return (0);
-	}
+	return (0);
+}
 
-	if (fd1 == -1)
-	{
-		printf ("  unable to open:  %s\n", p1);
-		return (0);
-	}
-	else
-	{
-#ifndef DEBUG
-		syslog (LOG_INFO, "%s: %s", "opened serial port 1", p1);
-#else
-		printf ("opened serial port 1\n");
-#endif
+int serialOpen (void)
+{
+	int i;
 
-		if (serialConfig(fd1))
-		{
-			printf ("  serial port p1 configured\n");
-		}
-		else
-		{
-			printf ("  unable to config serial:  %s\n", p1);
-			return (0);
-		}
-	}
+	serialLog ("serialOpen\n");
 
-	return (1);
+	for (i=0; i<NMBR_PORTS; ++i)
+		if (serialOpenPort (&p[i])) return (1);
+
+	return (0);
 }
 
 void serialClose (void)
 {
-	close (fd0);
-	close (fd1);
+	int i;
+
+	for (i=0; i<NMBR_PORTS; ++i) close (p[i].fd);
 }
 
+/*
+ * improved packet matcher
+ */
 int matchPacket (U8 b)
 {
 	static int s = 0;	// state
 	static int len = 0;	// packet length
-
 	static U8 cs = 0;	// checksum calculated
-	static U8 css = 0;	// checksum from packet
 
-	//if (DEBUG) printf("%i,%02X ", s, b);
+	printf("%i,%02X ", s, b);
 
 	switch (s)
 	{
-		case 0:
-			if (b == DLE)
+		case 0: // start of packet
+			if (b==DLE)
 			{
-				len = 1;
-				s = 1;
+				len=1;
+				s=1;
 			}
 			break;
-		case 1:
-			if (b == STX)
+		case 1: // start of packet
+			if (b==STX)
 			{
 				++len;
-				s = 2;
+				s=2;
 			}
-			else if (b == ACK)
+			else if (b==ACK)
 			{
 				++len;
-				s = 0;
+				s=0;
+				printf(" match (%i)\n", len);
 				return (len);
 			}
+			else
+				s=0;
 			break;
-		case 2: // data
-			cs = b;
-			css = b;
+		case 2: // start data
+			cs=b;
 			++len;
-			s = 3;
+			s=3;
 			break;
 		case 3: // data
-			if (b != DLE)
+			if (cs==b)
 			{
-				cs += b;
-				css = b;
-				++len;
+				printf ("<");
+				s=4;
 			}
+			cs += b;
+			++len;
+			break;
+		case 4: // end of packet
+			++len;
+			if (b==DLE)
+				s=5;
 			else
 			{
-				cs -= css;
-				++len;
-				s = 4;
+				if (cs != b) s=3;
+				cs += b;
 			}
 			break;
-		case 4:
+		case 5: // end of packet
 			++len;
-			if (b == ETX)
+			if (b==ETX)
 			{
-				// verify checksum
-				if (cs == css)
-				{
-					//if (DEBUG) printf(" (%02X %02X) match\n", cs, css);
-					s = 0;
-					return (len);
-				}
+				printf(" match (%i)\n", len);
+				s=0;
+				return (len);
 			}
+			if (cs==b)
+				s=4;
 			else
-			{
-				cs += DLE;
-				cs += b;
-				css = b;
-				s = 3;
-			}
+				s=3;
+			cs += b;
 			break;
 		default:
-			s = 0;
+			s=0;
 			break;
 	}
 
 	return (0);
 }
 
-void serialLoop (void)
+/*
+ * transfer data between the specified serial ports
+ */
+void serialPort (struct buffer_t *pa, struct buffer_t *pb)
 {
 	U8 buf[256];
-	int vf=0, n, i, len, tst=0;
 
-	//syslog (LOG_INFO, "%s", "starting serialLoop");
-	printf ("serialLoop\n");
+	int len;
+	int n, i;
+	int vf=vrfyPcktFlag;
 
-	vf=vrfyPcktFlag;
+	/*
+	 * source port pa
+	 */
+	if ( (n=read (pa->fd, &pa->b[0], sizeof(pa->b)-1) ) == -1 )
+	{
+		serialLog ("  unable to read from: %s\n", &pa->pn[0]);
+		return;
+	}
+	else if (n)
+	{
+		if (vf) rcvP (pa, n, &pa->b[0]);
+
+		for (i=0; i<n; ++i)
+		{
+			serialLog ("%s: rcv: %02X ", &pa->pn[0], &pa->b[i]);
+
+			if (vf)
+			{
+				if ( (len=matchPacket(buf[i]) ) ) tmtP (pa, len);
+			}
+			else
+			{
+				/*
+				 * destination port pb
+				 */
+				write (pb->fd, &pb->b[i], 1);
+
+				serialLog ("%s: rcv: %02X ", &pb->pn[0], &pb->b[i]);
+			}
+		}
+	}
+}
+
+void serialLoop (void)
+{
+	int tst=0;
+
+	serialLog ("serialLoop\n");
 
 	for (;;)
 	{
 		if (!tst)
 		{
-			printf ("serialLoop: for\n");
+			serialLog ("serialLoop: for\n");
 			tst=1;
 		}
 
-		/*
-		 * P0 --> P1
-		 */
-
-		if ( (n=read (fd0, &buf[0], sizeof(buf)-1) ) )
-		{
-			if (vf) rcvP1 (n, &(buf[0]));
-
-			for (i=0; i<n; ++i)
-			{
-				//syslog (LOG_INFO, "p0: rcv: %02X ", buf[i]);
-				printf ("p0: rcv: %02X ", buf[i]);
-
-				if (vf)
-				{
-					if ( (len=matchPacket(buf[i]) ) )
-					{
-						tmtP1(len);
-					}
-				}
-				else
-				{
-					write (fd1, &buf[i], 1);
-
-					//syslog (LOG_INFO, "p1: tmt: %02X ", buf[i]);
-					printf ("p1: tmt: %02X ", buf[i]);
-				}
-			}
-		}
-		else if (n == -1)
-		{
-			printf ("  unable to read from:  %s\n", p0);
-			return;
-		}
-
-		/*
-		 * P1 --> P0
-		 */
-
-		if ( (n=read (fd1, &buf[0], sizeof(buf)-1) ) )
-		{
-			if (vf) rcvP0 (n, &(buf[0]));
-
-			for (i=0; i<n; ++i)
-			{
-				//syslog (LOG_INFO, "p1: rcv: %02X ", buf[i]);
-				printf ("p1: rcv: %02X ", buf[i]);
-
-				if (vf)
-				{
-					if ( (len=matchPacket(buf[i]) ) )
-					{
-						tmtP0(len);
-					}
-				}
-				else
-				{
-					write (fd0, &buf[i], 1);
-
-					//syslog (LOG_INFO, "p0: tmt: %02X ", buf[i]);
-					printf ("p0: tmt: %02X ", buf[i]);
-				}
-			}
-		}
-		else if (n == -1)
-		{
-			printf ("  unable to read from:  %s\n", p1);
-			return;
-		}
+		serialPort (&p[0], &p[1]);
+		serialPort (&p[1], &p[0]);
 	}
 }
 /*
@@ -486,6 +378,7 @@ void *onExitHandler (int i, void *p)
 void daemonMode (void)
 {
 	int x;
+	int i, pf;
 	pid_t pid;
 
 	pid = fork();
@@ -506,39 +399,89 @@ void daemonMode (void)
 	umask(0);
 	chdir("/");
 
-	for (x=sysconf(_SC_OPEN_MAX); x>0; x--)
+	// close the open descriptors that are not serial ports
+	for (x=sysconf(_SC_OPEN_MAX); x; --x)
 	{
-		if (x != fd0 && x != fd1)
-			close (x);
+		pf=1;
+
+		// is the current descriptor a serial port?
+		for (i=0; i<NMBR_PORTS; ++i)
+			if (x == p[i].fd)
+			{
+				pf=0;
+				break;
+			}
+
+		if (pf) close (x);
 	}
 
 	//on_exit ( (void *) &onExitHandler, NULL);
 
-	for (;;)
-	{
-		serialLoop();
-		usleep(250);
-	}
+	serialLoop();
 }
 
-void tst (int argc, char *argv[])
+void tstPcktN (int i, U8 *p)
 {
-	int vf=0;
+	int n;
 
-#ifdef DBG_VRFY_PCKT
-	vf=1;
+	for (n=0; n<i; ++n) matchPacket(*(p+n));
+}
+
+void tstPckt (void)
+{
+	// tst
+	U8 e0[] = { 0x10, 0x02, 0x01, 0x02, 0x03, 0x06, 0x10, 0x03 }; // valid packt
+	U8 e1[] = { 0x10, 0x02, 0x01, 0x02, 0x10, 0x13, 0x10, 0x03 }; // valid packt
+	U8 e2[] = { 0x10, 0x02, 0x01, 0x02, 0x11, 0x13, 0x10, 0x03 }; // cs
+	U8 e3[] = { 0x10, 0x06 }; // valid ack
+	U8 e4[] = { 0x10, 0x06, 0x01, 0x02, 0x03, 0x10, 0x03 }; // valid ack
+
+	tstPcktN (sizeof(e0), &e0[0]);
+	tstPcktN (sizeof(e1), &e1[0]);
+	//tstPcktN (sizeof(e2), &e2[0]);
+	tstPcktN (sizeof(e3), &e3[0]);
+	tstPcktN (sizeof(e4), &e4[0]);
+}
+
+void showCmdLn (int argc, char *argv[])
+{
+#ifdef __ANDROID__
+	printf ("__ANDROID__\n");
 #endif
 
-	printf ("justatest\n");
+	serialLog ("justatest\n");
 
-	printf ("     argv[0] = %s\n", tn(0));
-	printf ("     argv[1] = %s\n", tn(1));
-	printf ("     argv[2] = %s\n", tn(2));
+	serialLog ("     argv[0] = %s\n", argv[0]);
+	serialLog ("     argv[1] = %s\n", argv[1]);
+	serialLog ("     argv[2] = %s\n", argv[2]);
 
-	printf ("vrfyPcktFlag = %i\n", vrfyPcktFlag);
-
-	//printf ("  vf = %i\n", vf);
+	serialLog ("vrfyPcktFlag = %i\n", vrfyPcktFlag);
 	//exit (0);
+}
+
+void configVars (int argc, char *argv[])
+{
+	int i;
+
+#ifdef __ANDROID__
+	bAnd=1;
+#else
+	bAnd=0;
+#endif
+#ifdef DEBUG
+	bDbg=1;
+#else
+	bDbg=0;
+#endif
+
+	if (argv[3] != NULL)
+		vrfyPcktFlag=1;
+	else
+		vrfyPcktFlag=0;
+
+	// save the port name
+	for (i=0; i<NMBR_PORTS; ++i)
+		strncpy (&p[i].pn[0], argv[i+1], sizeof(p[i].pn)-1);
 }
 
 /*
@@ -546,35 +489,24 @@ void tst (int argc, char *argv[])
  */
 int main (int argc, char *argv[])
 {
-	int n;
-	U8 buf[256];
+	//tstPckt();
 
-	p0 = argv[1];
-	p1 = argv[2];
+	serialLog ("justatest\n");
+	showCmdLn (argc, argv);
+	configVars(argc, argv);
 
-	/*
-	 * transmit only validated packets
-	 */
-	if (argv[3] != NULL)
-		vrfyPcktFlag=1;
+	serialInit();
+
+	if (bDbg)
+	{
+		if (serialOpen()) daemonMode();
+	}
 	else
-		vrfyPcktFlag=0;
-
-	tst (argc, argv);
-
-	serialInit(); // afaik
-
-#ifndef DEBUG
-	if (serialOpen(argv[1], argv[2])) daemonMode();
-#else
-	printf ("justatest\n");
-
-	serialOpen(argv[1], argv[2]);
-
-	serialLoop();
-
-	serialClose();
-#endif
+	{
+		serialOpen();
+		serialLoop();
+		serialClose();
+	}
 
 	return (0);
 }
