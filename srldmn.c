@@ -124,7 +124,7 @@ void serialLog (const char *f, ...)
 	va_start(a, f);
 
 	if (bDbg)
-		printf (f, a);
+		LOGD (f, a);
 	else if (bAnd)
 	{
 		//__android_log_write (ANDROID_LOG_INFO, f, a);
@@ -233,7 +233,7 @@ int matchPacket (U8 b)
 	static int len = 0;	// packet length
 	static U8 cs = 0;	// checksum calculated
 
-	printf("%i,%02X ", s, b);
+	LOGD("%i,%02X ", s, b);
 
 	switch (s)
 	{
@@ -254,7 +254,7 @@ int matchPacket (U8 b)
 			{
 				++len;
 				s=0;
-				printf(" match (%i)\n", len);
+				LOGD(" match (%i)\n", len);
 				return (len);
 			}
 			else
@@ -268,7 +268,7 @@ int matchPacket (U8 b)
 		case 3: // data
 			if (cs==b)
 			{
-				printf ("<");
+				LOGD ("<");
 				s=4;
 			}
 			cs += b;
@@ -288,7 +288,7 @@ int matchPacket (U8 b)
 			++len;
 			if (b==ETX)
 			{
-				printf(" match (%i)\n", len);
+				LOGD(" match (%i)\n", len);
 				s=0;
 				return (len);
 			}
@@ -446,7 +446,7 @@ void tstPckt (void)
 void showCmdLn (int argc, char *argv[])
 {
 #ifdef __ANDROID__
-	printf ("__ANDROID__\n");
+	LOGD ("__ANDROID__\n");
 #endif
 
 	serialLog ("justatest\n");

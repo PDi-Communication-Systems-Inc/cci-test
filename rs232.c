@@ -39,7 +39,13 @@
 
 
 #ifdef __linux__   /* Linux */
+#include <android/log.h>
 
+#define  LOG_TAG    "CCI"
+
+#define  LOGD(...)  __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#define  LOGE(...)  __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 int Cport[31],
     error;
@@ -62,7 +68,7 @@ int RS232_OpenComport(int comport_number, int baudrate)
 
   if((comport_number>30)||(comport_number<0))
   {
-    printf("illegal comport number\n");
+    LOGE("illegal comport number\n");
     return(1);
   }
 
@@ -114,7 +120,7 @@ int RS232_OpenComport(int comport_number, int baudrate)
                    break;
     case 1000000 : baudr = B1000000;
                    break;
-    default      : printf("invalid baudrate\n");
+    default      : LOGE("invalid baudrate\n");
                    return(1);
                    break;
   }
@@ -126,7 +132,7 @@ int RS232_OpenComport(int comport_number, int baudrate)
     return(1);
   }
 
-	printf("comport: %s\n",comports[comport_number]);
+	LOGD("comport: %s\n",comports[comport_number]);
 
   error = tcgetattr(Cport[comport_number], old_port_settings + comport_number);
   if(error==-1)
@@ -201,12 +207,12 @@ int RS232_SendBuf(int comport_number, const unsigned char *buf, int size)
 {
 	int i = 0;	
 
-	printf("Sending: ");
+	LOGD("Sending: ");
 	for(i=0; i < size; i++)
 	{
-		printf("%x ",buf[i]);
+		LOGD("%x ",buf[i]);
 	}
-	printf("\n");
+	LOGD("\n");
 
   return(write(Cport[comport_number], buf, size));
 }
@@ -355,7 +361,7 @@ int RS232_OpenComport(int comport_number, int baudrate)
 {
   if((comport_number>15)||(comport_number<0))
   {
-    printf("illegal comport number\n");
+    LOGE("illegal comport number\n");
     return(1);
   }
 
@@ -391,7 +397,7 @@ int RS232_OpenComport(int comport_number, int baudrate)
                    break;
     case 1000000 : strcpy(baudr, "baud=1000000 data=8 parity=N stop=1 dtr=on rts=on");
                    break;
-    default      : printf("invalid baudrate\n");
+    default      : LOGE("invalid baudrate\n");
                    return(1);
                    break;
   }
@@ -406,7 +412,7 @@ int RS232_OpenComport(int comport_number, int baudrate)
 
   if(Cport[comport_number]==INVALID_HANDLE_VALUE)
   {
-    printf("unable to open comport\n");
+    LOGE("unable to open comport\n");
     return(1);
   }
 
@@ -416,14 +422,14 @@ int RS232_OpenComport(int comport_number, int baudrate)
 
   if(!BuildCommDCBA(baudr, &port_settings))
   {
-    printf("unable to set comport dcb settings\n");
+    LOGE("unable to set comport dcb settings\n");
     CloseHandle(Cport[comport_number]);
     return(1);
   }
 
   if(!SetCommState(Cport[comport_number], &port_settings))
   {
-    printf("unable to set comport cfg settings\n");
+    LOGE("unable to set comport cfg settings\n");
     CloseHandle(Cport[comport_number]);
     return(1);
   }
@@ -438,7 +444,7 @@ int RS232_OpenComport(int comport_number, int baudrate)
 
   if(!SetCommTimeouts(Cport[comport_number], &Cptimeouts))
   {
-    printf("unable to set comport time-out settings\n");
+    LOGE("unable to set comport time-out settings\n");
     CloseHandle(Cport[comport_number]);
     return(1);
   }

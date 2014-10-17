@@ -1,13 +1,15 @@
 /**************************************************
 
 file: main.c
-purpose: simple demo that receives characters from
-the serial port and print them on the screen
+purpose: test the TV's CCI port 
+  - writes a valid CCI command to the TV and 
+  validates the response 
 
 **************************************************/
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <android/log.h>
 
 #ifdef _WIN32
     #include <Windows.h>
@@ -17,8 +19,25 @@ the serial port and print them on the screen
 
 #include "rs232.h"
 
-static const unsigned char PresenceReplyPacket[] = {0x10,2,0xD,0,0x0D,0x10,3};
-static const unsigned char setVolumeLouderwithOSD[] = {0x10,2,0x03,0x01,0x01,0x01,00,06,0x10,3};
+#define  LOG_TAG    "CCI"
+
+#define  LOGD(...)  __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#define  LOGE(...)  __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__); printf(__VA_ARGS__)
+#define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__); printf(__VA_ARGS__)
+
+#define DLE 0x10
+#define STX 0x02
+#define ETX 0x03
+
+static const unsigned char PresenceReplyPacket[] = {DLE, STX,0xD,0,0x0D,DLE, ETX};
+static const unsigned char writeOSD_title[] = {DLE, STX, 0x1A, 0x07, 0x00, 0x00, 0x01, 0x01, 0x13, \
+    0x54, 0x65, 0x73, 0x74, 0x69, 0x6E, 0x67, 0x20, 0x41, 0x6E, 0x64, 0x72, 0x6F, 0x69, 0x64, 0x20, \
+    0x43, 0x43, 0x49, 0x06, 0xE4, DLE, ETX}; // Testing Android CCI
+static const unsigned char writeOSD_pass[] = {DLE, STX, 0x1A, 0x00, 0x02, 0x00, 0x03, 0x01, 0x0A, \
+    0x20, 0x43, 0x43, 0x49, 0x20, 0x50, 0x41, 0x53, 0x53, 0x20, 0x02, 0x90, DLE, ETX};
+static const unsigned char writeOSD_fail[] = {DLE, STX, 0x1A, 0x07, 0x04, 0x01, 0x03, 0x01, 0x0A, \
+    0x20, 0x43, 0x43, 0x49, 0x20, 0x46, 0x41, 0x49, 0x4C, 0x20, 0x02, 0x7F, DLE, ETX};
+static const unsigned char clearOSD[] = {DLE, STX, 0x19, 0x00, 0x19, DLE, ETX};
 
 int main()
 {
@@ -30,13 +49,13 @@ int main()
     int powerOn = 1;
     int m =0;
 
-    printf("\nBeginning CCI test v1.0...\n");
+    LOGI("\nBeginning CCI test v1.1...\n");
 
     memset(&buf[0], 0, sizeof(buf));
 
     if (RS232_OpenComport(cport_nr, bdrate))
     {
-        printf("ERROR:  Can not open comport\n");
+        LOGE("ERROR:  Can not open comport\n");
 
         return(0);
     }
@@ -55,17 +74,17 @@ int main()
     //This function blocks (it returns after all the bytes have been processed).
 
     //m = RS232_SendBuf(cport_nr, PresenceReplyPacket, sizeof(PresenceReplyPacket));
-    m = RS232_SendBuf(cport_nr, setVolumeLouderwithOSD, sizeof(setVolumeLouderwithOSD));    
+    m = RS232_SendBuf(cport_nr, writeOSD_title, sizeof(writeOSD_title));    
 
     if (m >0)
     {
-        printf("Sent volume up command.  TV volume should have increased by 1.\n");
+        LOGI("Sent OSD command.  TV should display 'Testing Android CCI' text.\n");
     } else if (m == -1)
     {
-        printf("\nERROR:  Comm port error in sending  \n");
+        LOGE("\nERROR:  Comm port error in sending  \n");
     }
 
-    usleep(1000000); // sleep for 1 seconds
+    usleep(1000000); // sleep for 1 seconds waiting for response from TV
 
 
 
@@ -77,29 +96,40 @@ int main()
         buf[n] = 0;   /* always put a "null" at the end of a string! */
 
         // Print out what was received.
-        printf("received %i bytes: ", n);
+        LOGD("received %i bytes: ", n);
         for (i=0; i < n; i++)
         {
-            printf("%x ",buf[i]);
+            LOGD("%x ",buf[i]);
         }
-        printf("\n");
+        LOGD("\n");
 
         // Verify a proper ACK is received [10][06]
         if ((buf[0] == 0x10) && (buf[1] == 0x06))
         {
-            printf("Pass\n");
+            LOGI("Test Passed\n");
+            // send message to TV screen
+            m = RS232_SendBuf(cport_nr, writeOSD_pass, sizeof(writeOSD_pass));    
         }
         else
         {    
-            printf("********** FAIL (incorrect message from TV board) **********\n");
+            LOGI("********** FAIL (incorrect message from TV board) **********\n");
+            // send message to TV screen
+            m = RS232_SendBuf(cport_nr, writeOSD_fail, sizeof(writeOSD_fail));    
         }
     }
     else 
     {
-        printf("Received nothing from TV board.\n********** FAIL (no response from TV board) **********\n");
+        LOGI("********** FAIL (no response from TV board) **********\n");
+        // send message to TV screen
+        m = RS232_SendBuf(cport_nr, writeOSD_fail, sizeof(writeOSD_fail));    
     }
-    printf("...CCI test complete\n\n");
 
+    usleep(8000000); // leave message on screen for 8 seconds
+
+    // clear TV screen
+    m = RS232_SendBuf(cport_nr, clearOSD, sizeof(clearOSD));    
+
+    LOGI("...CCI test complete\n\n");
     return(0);
 }
 

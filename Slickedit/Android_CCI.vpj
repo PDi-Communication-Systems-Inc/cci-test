@@ -2,13 +2,14 @@
 <Project
 	Version="10.0"
 	VendorName="SlickEdit"
-	WorkingDir=".">
+	WorkingDir="."
+	VCSProject="Subversion:">
 	<Config
 		Name="Debug"
 		Type="cpp"
 		DebugCallbackName="gdb"
 		OutputFile="%bdAndroid_CCI"
-		CompilerConfigName="Android Bionic">
+		CompilerConfigName="Android Bionic Quad JB">
 		<Menu>
 			<Target
 				Name="Compile"
@@ -67,7 +68,7 @@
 		Type="cpp"
 		DebugCallbackName="gdb"
 		OutputFile="%bdAndroid_CCI"
-		CompilerConfigName="Android Bionic">
+		CompilerConfigName="Android Bionic Quad JB">
 		<Menu>
 			<Target
 				Name="Compile"
@@ -135,6 +136,7 @@
 			Filters="*.c;*.C;*.cc;*.cpp;*.cp;*.cxx;*.c++;*.prg;*.pas;*.dpr;*.asm;*.s;*.bas;*.java;*.cs;*.sc;*.e;*.cob;*.html;*.rc;*.tcl;*.py;*.pl;*.d">
 			<F N="../main.c"/>
 			<F N="../rs232.c"/>
+			<F N="../srldmn.c"/>
 		</Folder>
 		<Folder
 			Name="Header Files"
@@ -152,6 +154,9 @@
 			Filters="">
 			<F
 				N="../Android.mk"
+				Type="Makefile"/>
+			<F
+				N="../Makefile"
 				Type="Makefile"/>
 		</Folder>
 	</Files>

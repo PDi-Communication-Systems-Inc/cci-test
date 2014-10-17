@@ -1,15 +1,17 @@
 Building and installing CCI Test
 
- 1) build engr build of full Android OS
+ 1) connect target to PC with USB cable
+
+ 2) build engr build of full Android OS
  
- 2) in the system/cci folder on the linux box:
+ 3) in the system/cci folder on the linux box:
      $ mm
  
- 3) copy from linux box
-     ~/pdi_android_bcm_solo/out/target/product/sabresd_6dq/system/bin/cci
+ 4) copy from linux box
+     ~/pdi_android_bcm_quad_jb/myandroid/out/target/product/ar6mx/system/bin/cci-test
     to anywhere on pc
  
- 4) from windows prompt:
+ 5) from windows prompt:
      > adb remount
  
   NOTE: for TVRC, step 4 does not work.  You must follow these steps from windows prompt
@@ -22,11 +24,11 @@ Building and installing CCI Test
    $ exit
 
 
- 5) copy cci from pc "PATH" to target with "adb push" on windows command line as shown
-     > adb push PATH\cci /system/bin
+ 6) copy cci-test from pc "PATH" to target with "adb push" on windows command line as shown
+     > adb push PATH\cci-test /system/bin
  
- 6) from console shell on Android target:
-     $ cd /system/bin
-     $ chmod 766 cci
+ 7) from console shell on Android target:
+     # cd /system/bin
+     # chmod 766 cci-test
 
 
