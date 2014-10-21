@@ -49,11 +49,11 @@ int main()
     int powerOn = 1;
     int m =0;
 
-    LOGI("\nBeginning CCI test v1.1...\n");
+    LOGI("\nBeginning CCI test v1.2...\n");
 
     memset(&buf[0], 0, sizeof(buf));
 
-    if (RS232_OpenComport(cport_nr, bdrate))
+    if (RS232_OpenComport(cport_nr, bdrate, "8N1"))
     {
         LOGE("ERROR:  Can not open comport\n");
 
