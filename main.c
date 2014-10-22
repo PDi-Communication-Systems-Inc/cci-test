@@ -1,10 +1,28 @@
 /**************************************************
 
 file: main.c
-purpose: test the TV's CCI port 
-  - writes a valid CCI command to the TV and 
-  validates the response 
-
+purpose: test the TV's CCI port, then create 
+  passthrough
+ 
+  - writes a CCI command to the TV and 
+  validates the response
+  - continuously monitors TV and external comm
+  ports sending all data from one to the other
+ 
+HISTORY: 
+V1.0 - Inital version runs from Android terminal 
+ 
+V1.1 - Designed to run from Android init script after 
+       booting.  It will send status info to the TV
+       screen, the local terminal, and to logcat.
+ 
+V1.2 - Updated rs232.c with latest open source. 
+ 
+V1.3 - After testing the CCI connection to the TV, 
+       enter an infinite loop passing data back and
+       forth between the external CCI connection and
+       the TV.
+ 
 **************************************************/
 
 #include <stdlib.h>
@@ -39,23 +57,46 @@ static const unsigned char writeOSD_fail[] = {DLE, STX, 0x1A, 0x07, 0x04, 0x01, 
     0x20, 0x43, 0x43, 0x49, 0x20, 0x46, 0x41, 0x49, 0x4C, 0x20, 0x02, 0x7F, DLE, ETX};
 static const unsigned char clearOSD[] = {DLE, STX, 0x19, 0x00, 0x19, DLE, ETX};
 
+
+// define UART indexes
+#define TV_CCI_UART     30
+#define EXT_CCI_UART    31
+
+
+
+// helper function converts an array of bytes into a string of hex values
+void bin2hex(const unsigned char *in, int inlen, char *out) {
+    int i;
+    char tempstr[4];
+
+    out[0] = 0;
+    for (i=0; i < inlen; i++)
+    {
+        sprintf(tempstr, "%02x ", in[i]);
+        strcat(out, tempstr);
+    }
+
+    return;
+}
+
 int main()
 {
     int i, n, counter = 0,
-    cport_nr=30,        /* /dev/ttyS0 (COM1 on windows) cport_nr=16*/
-    bdrate=4800;       /* 9600 baud */
+    cport_nr = TV_CCI_UART, 
+    bdrate = 4800; 
 
     unsigned char buf[4096];
+    char dbuf[4096];
     int powerOn = 1;
     int m =0;
 
-    LOGI("\nBeginning CCI test v1.2...\n");
+    LOGI("\nBeginning CCI test v1.3...\n");
 
     memset(&buf[0], 0, sizeof(buf));
 
     if (RS232_OpenComport(cport_nr, bdrate, "8N1"))
     {
-        LOGE("ERROR:  Can not open comport\n");
+        LOGE("ERROR:  Can not open comport ttymxc1\n");
 
         return(0);
     }
@@ -96,12 +137,8 @@ int main()
         buf[n] = 0;   /* always put a "null" at the end of a string! */
 
         // Print out what was received.
-        LOGD("received %i bytes: ", n);
-        for (i=0; i < n; i++)
-        {
-            LOGD("%x ",buf[i]);
-        }
-        LOGD("\n");
+        bin2hex(buf, n, dbuf);
+        LOGD("Received %i bytes from TV: %s", n, dbuf);
 
         // Verify a proper ACK is received [10][06]
         if ((buf[0] == 0x10) && (buf[1] == 0x06))
@@ -129,8 +166,52 @@ int main()
     // clear TV screen
     m = RS232_SendBuf(cport_nr, clearOSD, sizeof(clearOSD));    
 
-    LOGI("...CCI test complete\n\n");
+    LOGI("...CCI test complete\n\nStarting CCI passthrough.\nCTRL-C to end.\n");
+
+
+    // ** CCI test is complete, now start the CCI passthrough process
+    // ** Infinite loop:  read from ttymxc1 - write to ttymxc3
+    // **                 read from ttymxc3 - write to ttymxc1
+
+    // ttymxc1 is already open, now open ttymxc3
+    if (RS232_OpenComport(EXT_CCI_UART, 4800, "8N1"))
+    {
+        LOGE("ERROR:  Can not open comport ttymxc3\n");
+
+        return(0);
+    }
+    
+    while(1)
+    {
+        // Receive from TV
+		n = RS232_PollComport(TV_CCI_UART, buf, 4095);
+    
+        if (n > 0)
+        {
+            // Log what was received.
+            bin2hex(buf, n, dbuf);
+            LOGD("Received %i bytes from TV: %s", n, dbuf);
+    
+            // send message to external CCI
+            m = RS232_SendBuf(EXT_CCI_UART, buf, n);    
+        }
+    
+    
+        // Receive from external CCI host
+		n = RS232_PollComport(EXT_CCI_UART, buf, 4095);
+    
+        if (n > 0)
+        {
+            // Log what was received.
+            bin2hex(buf, n, dbuf);
+            LOGD("Received %i bytes from external CCI host: %s", n, dbuf);
+    
+            // send message to TV
+            m = RS232_SendBuf(TV_CCI_UART, buf, n);    
+        }
+
+        usleep(100000); // pause for 100ms in between polling
+    }
+
     return(0);
 }
-
-

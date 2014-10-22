@@ -47,18 +47,19 @@
 #define  LOGE(...)  __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define  LOGI(...)  __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
-int Cport[31],
+int Cport[32],
     error;
 
 struct termios new_port_settings,
-       old_port_settings[31];
+       old_port_settings[32];
 
-char comports[31][16]={"/dev/ttyS0","/dev/ttyS1","/dev/ttyS2","/dev/ttyS3","/dev/ttyS4","/dev/ttyS5",
+char comports[32][16]={"/dev/ttyS0","/dev/ttyS1","/dev/ttyS2","/dev/ttyS3","/dev/ttyS4","/dev/ttyS5",
                        "/dev/ttyS6","/dev/ttyS7","/dev/ttyS8","/dev/ttyS9","/dev/ttyS10","/dev/ttyS11",
                        "/dev/ttyS12","/dev/ttyS13","/dev/ttyS14","/dev/ttyS15","/dev/ttyUSB0",
                        "/dev/ttyUSB1","/dev/ttyUSB2","/dev/ttyUSB3","/dev/ttyUSB4","/dev/ttyUSB5",
                        "/dev/ttyAMA0","/dev/ttyAMA1","/dev/ttyACM0","/dev/ttyACM1",
-                       "/dev/rfcomm0","/dev/rfcomm1","/dev/ircomm0","/dev/ircomm1","/dev/ttymxc1"};
+                       "/dev/rfcomm0","/dev/rfcomm1","/dev/ircomm0","/dev/ircomm1","/dev/ttymxc1",
+                       "/dev/ttymxc3"};
 
 
 
@@ -67,7 +68,7 @@ int RS232_OpenComport(int comport_number, int baudrate, const char *mode)
   int baudr,
       status;
 
-  if((comport_number>30)||(comport_number<0))
+  if((comport_number>31)||(comport_number<0))
   {
     LOGE("illegal comport number\n");
     return(1);
@@ -201,17 +202,17 @@ http://man7.org/linux/man-pages/man3/termios.3.html
   Cport[comport_number] = open(comports[comport_number], O_RDWR | O_NOCTTY | O_NDELAY);
   if(Cport[comport_number]==-1)
   {
-    perror("unable to open comport ");
+    LOGE("unable to open comport ");
     return(1);
   }
 
-	LOGD("comport: %s\n",comports[comport_number]);
+	LOGD("comport open: %s\n",comports[comport_number]);
 
   error = tcgetattr(Cport[comport_number], old_port_settings + comport_number);
   if(error==-1)
   {
     close(Cport[comport_number]);
-    perror("unable to read portsettings ");
+    LOGE("unable to read portsettings ");
     return(1);
   }
   memset(&new_port_settings, 0, sizeof(new_port_settings));  /* clear the new struct */
@@ -230,13 +231,13 @@ http://man7.org/linux/man-pages/man3/termios.3.html
   if(error==-1)
   {
     close(Cport[comport_number]);
-    perror("unable to adjust portsettings ");
+    LOGE("unable to adjust portsettings ");
     return(1);
   }
 
   if(ioctl(Cport[comport_number], TIOCMGET, &status) == -1)
   {
-    perror("unable to get portstatus");
+    LOGE("unable to get portstatus");
     return(1);
   }
 
@@ -245,7 +246,7 @@ http://man7.org/linux/man-pages/man3/termios.3.html
 
   if(ioctl(Cport[comport_number], TIOCMSET, &status) == -1)
   {
-    perror("unable to set portstatus");
+    LOGE("unable to set portstatus");
     return(1);
   }
 
@@ -278,13 +279,6 @@ int RS232_SendBuf(int comport_number, const unsigned char *buf, int size)
 {
 	int i = 0;	
 
-	LOGD("Sending: ");
-	for(i=0; i < size; i++)
-	{
-		LOGD("%x ",buf[i]);
-	}
-	LOGD("\n");
-
   return(write(Cport[comport_number], buf, size));
 }
 
@@ -295,7 +289,7 @@ void RS232_CloseComport(int comport_number)
 
   if(ioctl(Cport[comport_number], TIOCMGET, &status) == -1)
   {
-    perror("unable to get portstatus");
+    LOGE("unable to get portstatus");
   }
 
   status &= ~TIOCM_DTR;    /* turn off DTR */
@@ -303,7 +297,7 @@ void RS232_CloseComport(int comport_number)
 
   if(ioctl(Cport[comport_number], TIOCMSET, &status) == -1)
   {
-    perror("unable to set portstatus");
+    LOGE("unable to set portstatus");
   }
 
   tcsetattr(Cport[comport_number], TCSANOW, old_port_settings + comport_number);
@@ -363,14 +357,14 @@ void RS232_enableDTR(int comport_number)
 
   if(ioctl(Cport[comport_number], TIOCMGET, &status) == -1)
   {
-    perror("unable to get portstatus");
+    LOGE("unable to get portstatus");
   }
 
   status |= TIOCM_DTR;    /* turn on DTR */
 
   if(ioctl(Cport[comport_number], TIOCMSET, &status) == -1)
   {
-    perror("unable to set portstatus");
+    LOGE("unable to set portstatus");
   }
 }
 
@@ -380,14 +374,14 @@ void RS232_disableDTR(int comport_number)
 
   if(ioctl(Cport[comport_number], TIOCMGET, &status) == -1)
   {
-    perror("unable to get portstatus");
+    LOGE("unable to get portstatus");
   }
 
   status &= ~TIOCM_DTR;    /* turn off DTR */
 
   if(ioctl(Cport[comport_number], TIOCMSET, &status) == -1)
   {
-    perror("unable to set portstatus");
+    LOGE("unable to set portstatus");
   }
 }
 
@@ -397,14 +391,14 @@ void RS232_enableRTS(int comport_number)
 
   if(ioctl(Cport[comport_number], TIOCMGET, &status) == -1)
   {
-    perror("unable to get portstatus");
+    LOGE("unable to get portstatus");
   }
 
   status |= TIOCM_RTS;    /* turn on RTS */
 
   if(ioctl(Cport[comport_number], TIOCMSET, &status) == -1)
   {
-    perror("unable to set portstatus");
+    LOGE("unable to set portstatus");
   }
 }
 
@@ -414,14 +408,14 @@ void RS232_disableRTS(int comport_number)
 
   if(ioctl(Cport[comport_number], TIOCMGET, &status) == -1)
   {
-    perror("unable to get portstatus");
+    LOGE("unable to get portstatus");
   }
 
   status &= ~TIOCM_RTS;    /* turn off RTS */
 
   if(ioctl(Cport[comport_number], TIOCMSET, &status) == -1)
   {
-    perror("unable to set portstatus");
+    LOGE("unable to set portstatus");
   }
 }
 
