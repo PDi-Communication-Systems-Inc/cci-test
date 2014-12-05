@@ -23,6 +23,9 @@ V1.3 - After testing the CCI connection to the TV,
        forth between the external CCI connection and
        the TV.
  
+V1.4 - Changed loop wait period from 100ms to 5ms since 
+       an ACK is only 2 bytes being transmitted in 4.2ms. 
+ 
 **************************************************/
 
 #include <stdlib.h>
@@ -90,7 +93,7 @@ int main()
     int powerOn = 1;
     int m =0;
 
-    LOGI("\nBeginning CCI test v1.3...\n");
+    LOGI("\nBeginning CCI Test v1.4...\n");
 
     memset(&buf[0], 0, sizeof(buf));
 
@@ -210,7 +213,7 @@ int main()
             m = RS232_SendBuf(TV_CCI_UART, buf, n);    
         }
 
-        usleep(100000); // pause for 100ms in between polling
+        usleep(5000); // pause for 5ms in between polling
     }
 
     return(0);
