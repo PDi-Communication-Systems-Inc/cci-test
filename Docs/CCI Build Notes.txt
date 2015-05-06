@@ -4,7 +4,7 @@ Building and installing CCI Test
 
  2) build engr build of full Android OS
  
- 3) in the system/cci folder on the linux box:
+ 3) in the system/cci-test folder on the linux box:
      $ mm
  
  4) copy from linux box
